@@ -1,28 +1,38 @@
-/**
- * Catch-all API route for Vercel Serverless Functions.
- * Logs method, path, headers, query, and body to Vercel logs (console.log).
- * Works for GET, POST, PUT, DELETE, PATCH, OPTIONS, etc.
- */
 export default async function handler(req, res) {
-  // Prefer already-parsed bodies when available; otherwise read the stream
+  // ---- Read raw body (works for POST/PUT/PATCH/etc.)
   let rawBody = "";
-  if (req.body !== undefined) {
-    rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
-  } else {
+  try {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     rawBody = Buffer.concat(chunks).toString("utf8");
+  } catch {
+    rawBody = "";
   }
+
+  // Try to parse JSON when content-type indicates JSON
+  let parsedBody = null;
+  const ct = (req.headers["content-type"] || "").toLowerCase();
+  if (ct.includes("application/json") && rawBody) {
+    try { parsedBody = JSON.parse(rawBody); } catch { /* ignore */ }
+  }
+
+  // ---- Extract the catch-all path from query (key name is "...route")
+  const catchAll =
+    (Array.isArray(req.query?.route) && req.query.route) ||
+    (Array.isArray(req.query?.["...route"]) && req.query["...route"]) ||
+    (typeof req.query?.["...route"] === "string" ? [req.query["...route"]] : null);
+
+  const path = catchAll ? `/${catchAll.join("/")}` : "/";
 
   const info = {
     method: req.method,
     url: req.url,
-    // route is the catch-all param from the filename [...route].js
-    path: Array.isArray(req.query?.route) ? `/${req.query.route.join("/")}` : "/",
+    path,
     query: req.query || {},
     headers: req.headers,
     ip: req.headers["x-forwarded-for"] || req.socket?.remoteAddress || null,
     rawBody,
+    parsedBody,
   };
 
   console.log("---- Incoming request ----");
@@ -34,3 +44,4 @@ export default async function handler(req, res) {
     ...info,
   });
 }
+
